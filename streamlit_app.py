@@ -1,66 +1,60 @@
-import altair as alt
 import pandas as pd
+import altair as alt
 import streamlit as st
 
-# Show the page title and description.
-st.set_page_config(page_title="Movies dataset", page_icon="🎬")
-st.title("🎬 Movies dataset")
+# Configuração da página
+st.set_page_config(page_title="Custos Operacionais - ICO TOTAL", page_icon="💰")
+st.title("💰 Relatório de Custos Operacionais - ICO TOTAL")
 st.write(
     """
-    This app visualizes data from [The Movie Database (TMDB)](https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata).
-    It shows which movie genre performed best at the box office over the years. Just 
-    click on the widgets below to explore!
+    Este dashboard interativo apresenta os dados de custos operacionais do relatório **ICO TOTAL**.
+    Explore os valores ao longo dos anos por unidade ou distribuidora (`DIST`).
     """
 )
 
-
-# Load the data from a CSV. We're caching this so it doesn't reload every time the app
-# reruns (e.g. if the user interacts with the widgets).
+# Leitura e pré-processamento
 @st.cache_data
 def load_data():
-    df = pd.read_csv("data/movies_genres_summary.csv")
+    df = pd.read_csv("ICO TOTAL.txt", sep=";", encoding="utf-8")
+    df["DATA_BASE"] = pd.to_datetime(df["DATA_BASE"], dayfirst=True)
+    df["Ano"] = df["DATA_BASE"].dt.year
+    df["Próprio_Distribuidor"] = pd.to_numeric(df["Próprio_Distribuidor"], errors="coerce")
+    df["Diferente_Próprio_Distribuidor"] = pd.to_numeric(df["Diferente_Próprio_Distribuidor"], errors="coerce")
+    df["Total"] = pd.to_numeric(df["Total"], errors="coerce")
     return df
-
 
 df = load_data()
 
-# Show a multiselect widget with the genres using `st.multiselect`.
-genres = st.multiselect(
-    "Genres",
-    df.genre.unique(),
-    ["Action", "Adventure", "Biography", "Comedy", "Drama", "Horror"],
-)
+# Filtros
+anos = st.slider("Ano", int(df["Ano"].min()), int(df["Ano"].max()), (int(df["Ano"].min()), int(df["Ano"].max())))
+dists = st.multiselect("DIST (Distribuidora ou Área)", sorted(df["DIST"].unique()), default=sorted(df["DIST"].unique()))
 
-# Show a slider widget with the years using `st.slider`.
-years = st.slider("Years", 1986, 2006, (2000, 2016))
+df_filtrado = df[
+    (df["Ano"].between(anos[0], anos[1])) &
+    (df["DIST"].isin(dists))
+]
 
-# Filter the dataframe based on the widget input and reshape it.
-df_filtered = df[(df["genre"].isin(genres)) & (df["year"].between(years[0], years[1]))]
-df_reshaped = df_filtered.pivot_table(
-    index="year", columns="genre", values="gross", aggfunc="sum", fill_value=0
-)
-df_reshaped = df_reshaped.sort_values(by="year", ascending=False)
+# Agregação
+df_agg = df_filtrado.groupby("Ano")[["Próprio_Distribuidor", "Diferente_Próprio_Distribuidor", "Total"]].sum().reset_index()
 
+# Tabela de dados
+st.subheader("📊 Tabela Agregada por Ano")
+st.dataframe(df_agg, use_container_width=True)
 
-# Display the data as a table using `st.dataframe`.
-st.dataframe(
-    df_reshaped,
-    use_container_width=True,
-    column_config={"year": st.column_config.TextColumn("Year")},
-)
+# Gráfico de linhas
+st.subheader("📈 Evolução dos Custos Operacionais")
 
-# Display the data as an Altair chart using `st.altair_chart`.
-df_chart = pd.melt(
-    df_reshaped.reset_index(), id_vars="year", var_name="genre", value_name="gross"
-)
+df_melt = df_agg.melt(id_vars="Ano", var_name="Tipo", value_name="Valor")
+
 chart = (
-    alt.Chart(df_chart)
-    .mark_line()
+    alt.Chart(df_melt)
+    .mark_line(point=True)
     .encode(
-        x=alt.X("year:N", title="Year"),
-        y=alt.Y("gross:Q", title="Gross earnings ($)"),
-        color="genre:N",
+        x=alt.X("Ano:O", title="Ano"),
+        y=alt.Y("Valor:Q", title="Custo (R$)"),
+        color="Tipo:N"
     )
-    .properties(height=320)
+    .properties(height=400)
 )
+
 st.altair_chart(chart, use_container_width=True)
